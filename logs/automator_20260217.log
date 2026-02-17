@@ -1,0 +1,17 @@
+Playwright browser launched
+Proxy http://scraper:pass@host:port failed health check: http://scraper:pass@host:port
+Proxy http://72.56.59.62:63133 healthy (IP: 72.56.59.62)
+Healthy proxies: 1/2
+Campaign 1 not found
+Playwright browser closed
+Playwright browser launched
+Playwright browser launched
+Generated fingerprint for _scraper_Astrologers
+playwright-stealth not installed; running without stealth patches
+Created browser context for _scraper_Astrologers
+Could not find followers link for Astrologers
+Saved cookies for _scraper_Astrologers
+Closed context for _scraper_Astrologers
+Saved 0 filtered targets from Astrologers (raw: 0)
+Playwright browser closed
+Imported 2 targets from targets.csv

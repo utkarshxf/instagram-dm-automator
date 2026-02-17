@@ -1,0 +1,12 @@
+{
+  "user_agent": "Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.144 Mobile Safari/537.36",
+  "viewport": {
+    "width": 360,
+    "height": 780
+  },
+  "device_scale_factor": 3,
+  "is_mobile": true,
+  "has_touch": true,
+  "timezone": "Asia/Kolkata",
+  "locale": "en-GB"
+}
