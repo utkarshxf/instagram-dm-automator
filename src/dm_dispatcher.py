@@ -76,7 +76,7 @@ class DMDispatcher:
         try:
             # Navigate to target's profile
             await page.goto(f"https://www.instagram.com/{target_username}/",
-                           wait_until="networkidle", timeout=20000)
+                           wait_until="domcontentloaded", timeout=20000)
             await page.wait_for_timeout(random.randint(2000, 5000))
 
             # Check for blocks

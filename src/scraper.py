@@ -85,7 +85,7 @@ class Scraper:
         try:
             # Navigate to target profile
             await page.goto(f"https://www.instagram.com/{target_account}/",
-                           wait_until="networkidle", timeout=30000)
+                           wait_until="domcontentloaded", timeout=30000)
             await page.wait_for_timeout(random.randint(2000, 5000))
 
             # Click followers count link
@@ -192,7 +192,7 @@ class Scraper:
                       "follower_count": 0, "following_count": 0, "is_private": False}
         try:
             await page.goto(f"https://www.instagram.com/{username}/",
-                           wait_until="networkidle", timeout=20000)
+                           wait_until="domcontentloaded", timeout=20000)
             await page.wait_for_timeout(random.randint(1000, 3000))
 
             # Extract meta info from page

@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS accounts (
     username TEXT UNIQUE NOT NULL,
     password TEXT NOT NULL,
     proxy TEXT,
+    secret_key TEXT,  -- New field for storing secret key
     status TEXT DEFAULT 'new',  -- new, warming, active, paused, disabled
     warmup_started_at TEXT,
     warmup_completed_at TEXT,
@@ -145,11 +146,11 @@ class Database:
 
     # ── Accounts ──────────────────────────────────────────────
 
-    async def add_account(self, username: str, password: str, proxy: str = "") -> int:
-        """Add a new Instagram account."""
+    async def add_account(self, username: str, password: str, proxy: str = "", secret_key: str = None) -> int:
+        """Add a new Instagram account with optional secret_key."""
         await self.db.execute(
-            "INSERT OR IGNORE INTO accounts (username, password, proxy) VALUES (?, ?, ?)",
-            (username, password, proxy),
+            "INSERT OR IGNORE INTO accounts (username, password, proxy, secret_key) VALUES (?, ?, ?, ?)",
+            (username, password, proxy, secret_key),
         )
         await self.db.commit()
         async with self.db.execute("SELECT id FROM accounts WHERE username = ?", (username,)) as cur:

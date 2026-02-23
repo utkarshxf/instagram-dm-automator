@@ -20,7 +20,6 @@ BLOCK_INDICATORS = [
     "temporarily blocked",
     "your account has been temporarily",
     "suspicious activity",
-    "confirm your identity",
     "challenge_required",
 ]
 
@@ -30,6 +29,7 @@ CHECKPOINT_INDICATORS = [
     "confirm it's you",
     "security code",
     "unusual login attempt",
+    "confirm your identity",
 ]
 
 
@@ -115,7 +115,7 @@ class Monitor:
 
         # Send alert
         await self.send_alert(
-            f"🚫 Account @{account_username} blocked (#{block_count})\n"
+            f"[BLOCK] Account @{account_username} blocked (#{block_count})\n"
             f"Reason: {block_message}\n"
             f"Status: {new_status}\n"
             f"Cooldown: {cooldown_hours}h"
@@ -126,7 +126,7 @@ class Monitor:
         await self.db.update_account(account_username, status="paused")
         logger.warning("Account %s hit challenge: %s", account_username, challenge_message)
         await self.send_alert(
-            f"⚠️ Account @{account_username} requires verification\n"
+            f"Account @{account_username} requires verification\n"
             f"Challenge: {challenge_message}\n"
             f"Manual intervention needed."
         )
@@ -200,3 +200,4 @@ class Monitor:
                 "cooldown_until": acct.get("cooldown_until", ""),
             })
         return summaries
+

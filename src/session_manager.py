@@ -1,260 +1,302 @@
-"""Browser session manager with Playwright stealth, fingerprinting, and cookie persistence."""
+"""Session manager: manages Playwright browser, contexts, and login/auth."""
 
-import json
-import os
-import random
 import logging
-from typing import Optional
-
-from playwright.async_api import async_playwright, Browser, BrowserContext, Page, Playwright
+from pathlib import Path
+from typing import Dict, Optional
+from playwright.async_api import (
+    async_playwright,
+    BrowserContext,
+    Page,
+    Error as PlaywrightError,
+)
 
 logger = logging.getLogger("ig-automator.session")
 
-DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
-
-MOBILE_DEVICES = [
-    {
-        "user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1",
-        "viewport": {"width": 390, "height": 844},
-        "device_scale_factor": 3,
-        "is_mobile": True,
-        "has_touch": True,
-    },
-    {
-        "user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
-        "viewport": {"width": 375, "height": 812},
-        "device_scale_factor": 3,
-        "is_mobile": True,
-        "has_touch": True,
-    },
-    {
-        "user_agent": "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.144 Mobile Safari/537.36",
-        "viewport": {"width": 412, "height": 915},
-        "device_scale_factor": 2.625,
-        "is_mobile": True,
-        "has_touch": True,
-    },
-    {
-        "user_agent": "Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.144 Mobile Safari/537.36",
-        "viewport": {"width": 360, "height": 780},
-        "device_scale_factor": 3,
-        "is_mobile": True,
-        "has_touch": True,
-    },
-]
-
-TIMEZONES = ["America/New_York", "America/Chicago", "America/Los_Angeles", "Europe/London", "Asia/Kolkata"]
-LOCALES = ["en-US", "en-GB", "en-IN"]
-
-
-def _cookie_path(username: str) -> str:
-    return os.path.join(DATA_DIR, f"{username}_cookies.json")
-
-
-def _fingerprint_path(username: str) -> str:
-    return os.path.join(DATA_DIR, f"{username}_fingerprint.json")
+# Realistic Chrome user agent to reduce bot detection
+_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/120.0.0.0 Safari/537.36"
+)
 
 
 class SessionManager:
-    """Manages Playwright browser sessions with stealth, fingerprinting, and persistence."""
+    """Manages Playwright browser and per-account persistent sessions."""
 
-    def __init__(self) -> None:
-        self._playwright: Optional[Playwright] = None
-        self._browser: Optional[Browser] = None
-        self._contexts: dict[str, BrowserContext] = {}
-        self._pages: dict[str, Page] = {}
+    def __init__(self, profiles_dir: str = ".profiles") -> None:
+        self._playwright = None
+        self._contexts: Dict[str, BrowserContext] = {}
+        self.profiles_dir = Path(profiles_dir)
+        self.profiles_dir.mkdir(parents=True, exist_ok=True)
 
     async def start(self) -> None:
-        """Launch the Playwright instance and browser."""
+        if self._playwright:
+            return
         self._playwright = await async_playwright().start()
-        self._browser = await self._playwright.chromium.launch(headless=True)
-        logger.info("Playwright browser launched")
+        logger.info("Playwright started")
 
     async def stop(self) -> None:
-        """Close all contexts and the browser."""
-        for username in list(self._contexts.keys()):
-            await self.close_context(username)
-        if self._browser:
-            await self._browser.close()
+        for username, ctx in list(self._contexts.items()):
+            try:
+                await ctx.close()
+                logger.info("Closed context for %s", username)
+            except Exception as e:
+                logger.warning("Error closing context for %s: %s", username, e)
+        self._contexts.clear()
         if self._playwright:
             await self._playwright.stop()
-        logger.info("Playwright browser closed")
+            self._playwright = None
 
-    def _get_or_create_fingerprint(self, username: str) -> dict:
-        """Load or generate a persistent device fingerprint for an account."""
-        fp_path = _fingerprint_path(username)
-        if os.path.exists(fp_path):
-            with open(fp_path, "r") as f:
-                return json.load(f)
-
-        device = random.choice(MOBILE_DEVICES)
-        fp = {
-            "user_agent": device["user_agent"],
-            "viewport": device["viewport"],
-            "device_scale_factor": device["device_scale_factor"],
-            "is_mobile": device["is_mobile"],
-            "has_touch": device["has_touch"],
-            "timezone": random.choice(TIMEZONES),
-            "locale": random.choice(LOCALES),
-        }
-        os.makedirs(os.path.dirname(fp_path), exist_ok=True)
-        with open(fp_path, "w") as f:
-            json.dump(fp, f, indent=2)
-        logger.info("Generated fingerprint for %s", username)
-        return fp
-
-    async def create_context(self, username: str, proxy: Optional[dict] = None) -> BrowserContext:
-        """Create an isolated browser context for an account with stealth and fingerprint."""
-        assert self._browser is not None, "Call start() first"
-
-        fp = self._get_or_create_fingerprint(username)
-
-        ctx_kwargs: dict = {
-            "user_agent": fp["user_agent"],
-            "viewport": fp["viewport"],
-            "device_scale_factor": fp["device_scale_factor"],
-            "is_mobile": fp["is_mobile"],
-            "has_touch": fp["has_touch"],
-            "locale": fp["locale"],
-            "timezone_id": fp["timezone"],
-        }
-        if proxy:
-            ctx_kwargs["proxy"] = proxy
-
-        # Load cookies if available
-        cookie_file = _cookie_path(username)
-        if os.path.exists(cookie_file):
-            with open(cookie_file, "r") as f:
-                storage_state = json.load(f)
-            ctx_kwargs["storage_state"] = cookie_file
-            logger.info("Loaded cookies for %s", username)
-
-        context = await self._browser.new_context(**ctx_kwargs)
-
-        # Apply stealth via playwright-stealth
-        try:
-            from playwright_stealth import Stealth
-
-            stealth = Stealth()  # can pass options here if needed
-            await stealth.apply_stealth_async(context)  # patches all pages in this context
-
-            page = await context.new_page()
-            self._pages[username] = page
-        except ImportError:
-            logger.warning("playwright-stealth not installed; running without stealth patches")
-            page = await context.new_page()
-            self._pages[username] = page
-
-        self._contexts[username] = context
-        logger.info("Created browser context for %s", username)
-        return context
-
-    async def save_cookies(self, username: str) -> None:
-        """Persist cookies/storage state to disk."""
-        ctx = self._contexts.get(username)
-        if not ctx:
-            return
-        cookie_file = _cookie_path(username)
-        os.makedirs(os.path.dirname(cookie_file), exist_ok=True)
-        storage = await ctx.storage_state()
-        with open(cookie_file, "w") as f:
-            json.dump(storage, f, indent=2)
-        logger.info("Saved cookies for %s", username)
-
-    async def close_context(self, username: str) -> None:
-        """Save cookies and close a context."""
-        await self.save_cookies(username)
-        ctx = self._contexts.pop(username, None)
-        self._pages.pop(username, None)
-        if ctx:
-            await ctx.close()
-        logger.info("Closed context for %s", username)
+    def get_context(self, username: str) -> Optional[BrowserContext]:
+        return self._contexts.get(username)
 
     def get_page(self, username: str) -> Optional[Page]:
-        """Get the active page for an account."""
-        return self._pages.get(username)
+        ctx = self.get_context(username)
+        if ctx and ctx.pages:
+            return ctx.pages[0]
+        return None
 
-    async def login(self, username: str, password: str) -> bool:
-        """Perform Instagram login flow with 2FA prompt support.
+    async def create_context(
+        self,
+        username: str,
+        proxy: Optional[dict] = None,
+        headless: bool = True,
+        viewport: Optional[dict] = None,
+    ) -> BrowserContext:
+        """Create or attach to a persistent browser context for an account."""
+        if not self._playwright:
+            raise RuntimeError("Playwright not started. Call SessionManager.start() first.")
+        if username in self._contexts:
+            return self._contexts[username]
+        user_data_dir = str(self.profiles_dir / username)
+        launch_args = [
+            "--disable-blink-features=AutomationControlled",
+            "--disable-dev-shm-usage",
+            "--no-sandbox",
+            "--disable-infobars",
+            "--disable-extensions",
+        ]
+        context_kwargs = {
+            "user_data_dir": user_data_dir,
+            "headless": headless,
+            "args": launch_args,
+            "viewport": viewport or {"width": 1280, "height": 720},
+            "user_agent": _USER_AGENT,
+            "locale": "en-US",
+            "timezone_id": "America/New_York",
+        }
+        if proxy:
+            context_kwargs["proxy"] = proxy
+        ctx = await self._playwright.chromium.launch_persistent_context(**context_kwargs)
+        self._contexts[username] = ctx
 
-        Returns True on success, False on failure.
-        """
-        page = self.get_page(username)
-        if not page:
-            logger.error("No page for %s — create context first", username)
-            return False
+        # Mask navigator.webdriver to reduce bot detection
+        await ctx.add_init_script(
+            "Object.defineProperty(navigator, 'webdriver', { get: () => undefined })"
+        )
 
-        try:
-            await page.goto("https://www.instagram.com/accounts/login/", wait_until="networkidle", timeout=30000)
-            await page.wait_for_timeout(random.randint(2000, 4000))
-
-            # Dismiss cookie banner if present
-            try:
-                accept_btn = page.locator("button:has-text('Allow'), button:has-text('Accept')")
-                if await accept_btn.count() > 0:
-                    await accept_btn.first.click()
-                    await page.wait_for_timeout(1000)
-            except Exception:
-                pass
-
-            # Fill credentials
-            username_input = page.locator('input[name="username"]')
-            await username_input.fill("")
-            await username_input.type(username, delay=random.randint(50, 150))
-            await page.wait_for_timeout(random.randint(500, 1500))
-
-            password_input = page.locator('input[name="password"]')
-            await password_input.fill("")
-            await password_input.type(password, delay=random.randint(50, 150))
-            await page.wait_for_timeout(random.randint(500, 1500))
-
-            # Submit
-            await page.locator('button[type="submit"]').click()
-            await page.wait_for_timeout(5000)
-
-            # Check for 2FA / challenge
-            content = (await page.content()).lower()
-            if "challenge" in page.url or "two_factor" in page.url or "confirm your identity" in content or "suspicious activity" in content:
-                logger.warning("Challenge/Identity verification required for %s", username)
-                logger.info("Please complete the verification in the browser if possible, or follow the prompts.")
-                
-                # Try to find a code input field if it's a 2FA challenge
-                code_input = page.locator('input[name="verificationCode"], input[name="security_code"]')
-                if await code_input.count() > 0:
-                    # In a real CLI scenario we'd prompt; here we wait up to 120s
-                    try:
-                        code = input(f"Enter verification code for {username}: ").strip()
-                        if code:
-                            await code_input.first.type(code, delay=100)
-                            await page.locator('button:has-text("Confirm"), button:has-text("Next"), button[type="submit"]').first.click()
-                            await page.wait_for_timeout(5000)
-                    except EOFError:
-                        logger.error("No input stream available for 2FA code")
-
-            # Check success
-            final_content = (await page.content()).lower()
-            is_success = "login" not in page.url and "challenge" not in page.url and "confirm your identity" not in final_content
-            
-            if is_success:
-                logger.info("Login successful for %s", username)
-                await self.save_cookies(username)
-                return True
-
-            logger.error("Login failed for %s (still on login/challenge page)", username)
-            return False
-
-        except Exception as e:
-            logger.error("Login error for %s: %s", username, e)
-            return False
+        if not ctx.pages:
+            await ctx.new_page()
+        logger.info("Created persistent context for %s", username)
+        return ctx
 
     async def is_logged_in(self, username: str) -> bool:
-        """Check if the account session is still valid."""
-        page = self.get_page(username)
-        if not page:
+        """
+        Check login status using session cookies first (fast, no page navigation).
+        Falls back to a lightweight page check only if no session cookie is found.
+        """
+        ctx = self.get_context(username)
+        if not ctx:
+            logger.warning(f"[is_logged_in] No context for {username}")
             return False
+
+        # --- Fast path: check for sessionid cookie ---
         try:
-            await page.goto("https://www.instagram.com/", wait_until="networkidle", timeout=20000)
-            await page.wait_for_timeout(2000)
-            return "login" not in page.url
-        except Exception:
+            cookies = await ctx.cookies("https://www.instagram.com")
+            session_cookie = next(
+                (c for c in cookies if c.get("name") == "sessionid" and c.get("value")),
+                None,
+            )
+            if session_cookie:
+                logger.info(
+                    f"[is_logged_in] Found valid sessionid cookie for {username}"
+                )
+                return True
+            logger.info(
+                f"[is_logged_in] No sessionid cookie for {username}, falling back to page check"
+            )
+        except Exception as e:
+            logger.warning(f"[is_logged_in] Cookie check failed for {username}: {e}")
+
+        # --- Slow path: navigate and inspect the page ---
+        page: Page = ctx.pages[0] if ctx.pages else await ctx.new_page()
+        try:
+            await page.goto(
+                "https://www.instagram.com/",
+                wait_until="domcontentloaded",
+                timeout=60000,
+            )
+            await page.wait_for_timeout(3000)
+
+            login_form = await page.query_selector('input[name="username"]')
+            if login_form:
+                logger.info(f"[is_logged_in] Login form detected for {username}")
+                await page.screenshot(path=f"not_logged_in_{username}.png")
+                return False
+
+            selectors = [
+                'a[href="/"] svg',
+                'a[href*="/direct/inbox"]',
+                'svg[aria-label="Home"]',
+                'svg[aria-label="Messenger"]',
+                'img[data-testid="user-avatar"]',
+                'nav',
+                'header',
+            ]
+            for sel in selectors:
+                el = await page.query_selector(sel)
+                if el:
+                    logger.info(
+                        f"[is_logged_in] Found logged-in selector '{sel}' for {username}"
+                    )
+                    return True
+
+            logger.warning(
+                f"[is_logged_in] No logged-in selectors found for {username}. "
+                f"URL: {page.url}, Title: {await page.title()}"
+            )
+            await page.screenshot(path=f"not_logged_in_{username}.png")
+            return False
+
+        except PlaywrightError as e:
+            logger.error(f"[is_logged_in] PlaywrightError for {username}: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"[is_logged_in] Exception for {username}: {e}")
+            return False
+
+    async def _wait_for_login_page(self, page: Page, username: str) -> bool:
+        """
+        Navigate to the Instagram login page and wait for the username input to appear.
+        Returns True if the login form is ready, False otherwise.
+        """
+        try:
+            await page.goto(
+                "https://www.instagram.com/accounts/login/",
+                wait_until="networkidle",
+                timeout=60000,
+            )
+            # Explicit wait for the username field (up to 20s after navigation)
+            await page.wait_for_selector(
+                'input[name="username"]', state="visible", timeout=20000
+            )
+            return True
+        except PlaywrightError as e:
+            logger.error(
+                f"[_wait_for_login_page] Login page did not load for {username}: {e}"
+            )
+            await page.screenshot(path=f"login_page_error_{username}.png")
+            logger.info(f"[_wait_for_login_page] Screenshot saved: login_page_error_{username}.png")
+            return False
+
+    async def login(self, username: str, password: str) -> bool:
+        """Standard password-only login."""
+        ctx = self.get_context(username)
+        if not ctx:
+            ctx = await self.create_context(username, headless=True)
+        page: Page = ctx.pages[0] if ctx.pages else await ctx.new_page()
+        try:
+            if not await self._wait_for_login_page(page, username):
+                logger.error(f"[login] Could not load login page for {username}")
+                return False
+
+            await page.fill('input[name="username"]', username)
+            await page.fill('input[name="password"]', password)
+            await page.wait_for_timeout(500)  # small human-like pause
+            await page.click('button[type="submit"]')
+            await page.wait_for_timeout(6000)
+
+            if await self.is_logged_in(username):
+                logger.info(f"[login] Password login successful for {username}")
+                return True
+            else:
+                logger.error(f"[login] Password login failed for {username}")
+                await page.screenshot(path=f"login_failed_{username}.png")
+                return False
+        except Exception as e:
+            logger.error(f"[login] Exception for {username}: {e}")
+            await page.screenshot(path=f"login_exception_{username}.png")
+            return False
+
+    async def authenticate_with_secret(
+        self, username: str, secret_key: str, password: Optional[str] = None
+    ) -> bool:
+        """Login with password + TOTP 2FA secret key."""
+        import pyotp
+
+        ctx = self.get_context(username)
+        if not ctx:
+            ctx = await self.create_context(username, headless=True)
+        page: Page = ctx.pages[0] if ctx.pages else await ctx.new_page()
+        try:
+            if not await self._wait_for_login_page(page, username):
+                logger.error(f"[2FA] Could not load login page for {username}")
+                return False
+
+            await page.fill('input[name="username"]', username)
+            await page.fill('input[name="password"]', password)
+            await page.wait_for_timeout(500)
+            await page.click('button[type="submit"]')
+            await page.wait_for_timeout(5000)
+
+            # Wait for the 2FA input field to appear
+            try:
+                await page.wait_for_selector(
+                    'input[name="verificationCode"]', state="visible", timeout=15000
+                )
+            except PlaywrightError:
+                logger.warning(
+                    f"[2FA] verificationCode field not found for {username}; "
+                    "Instagram may not have prompted for 2FA or login already succeeded."
+                )
+                # Maybe login succeeded without 2FA prompt
+                if await self.is_logged_in(username):
+                    logger.info(f"[2FA] Logged in without 2FA prompt for {username}")
+                    return True
+                await page.screenshot(path=f"2fa_no_prompt_{username}.png")
+                return False
+
+            totp = pyotp.TOTP(secret_key)
+            code = totp.now()
+            logger.info(f"[2FA] Using TOTP code for {username}")
+            await page.fill('input[name="verificationCode"]', code)
+            await page.wait_for_timeout(500)
+
+            # Try both common button labels
+            confirm_clicked = False
+            for selector in [
+                'button[type="button"]:has-text("Confirm")',
+                'button[type="submit"]:has-text("Confirm")',
+                'button:has-text("Submit")',
+            ]:
+                btn = await page.query_selector(selector)
+                if btn:
+                    await btn.click()
+                    confirm_clicked = True
+                    break
+            if not confirm_clicked:
+                logger.warning(f"[2FA] Could not find Confirm button for {username}")
+
+            await page.wait_for_timeout(6000)
+
+            if await self.is_logged_in(username):
+                logger.info(f"[2FA] 2FA login successful for {username}")
+                return True
+            else:
+                logger.error(f"[2FA] 2FA login failed for {username}")
+                await page.screenshot(path=f"2fa_failed_{username}.png")
+                return False
+        except Exception as e:
+            logger.error(f"[2FA] Exception for {username}: {e}")
+            await page.screenshot(path=f"2fa_exception_{username}.png")
             return False

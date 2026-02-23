@@ -2,12 +2,13 @@
   "accounts": [
     {
       "username": "lajeyec180",
-      "password": "Best@2026##",
-      "proxy": "http://72.56.59.62:63133"
+      "password": "Best@2027##",
+      "proxy": "",
+      "secret_key": "JBLJDNLV2H7BIAXHHAOPSXBNE6W6V5XO"
     }
   ],
   "warmup": {
-    "duration_hours": 48,
+    "duration_hours": 0,
     "actions_per_session": 15,
     "session_gap_minutes": 120
   },
@@ -21,7 +22,7 @@
     "scaling_increment": 10
   },
   "scraping": {
-    "proxy": "http://72.56.59.62:63133",
+    "proxy": "",
     "targets_per_run": 500,
     "filters": {
       "min_followers": 100,

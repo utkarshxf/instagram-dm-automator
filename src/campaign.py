@@ -4,7 +4,6 @@ import asyncio
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Optional
 
 from .db import Database
 from .session_manager import SessionManager
@@ -67,7 +66,7 @@ class CampaignOrchestrator:
         await self.session_mgr.stop()
 
     async def setup_account(self, username: str, password: str, proxy: str = "") -> bool:
-        """Set up an account: assign proxy, create browser context, login."""
+        """Set up an account: assign proxy, create browser context, login with fallback."""
         # Assign proxy
         proxy_dict = None
         if proxy:
@@ -78,13 +77,33 @@ class CampaignOrchestrator:
         # Create browser context
         await self.session_mgr.create_context(username, proxy=proxy_dict)
 
-        # Check if already logged in (cookies)
+        # Check if already logged in (persistent session)
         if await self.session_mgr.is_logged_in(username):
-            logger.info("Account %s already logged in via cookies", username)
+            logger.info("Account %s already logged in via persistent session", username)
             return True
 
-        # Login
-        return await self.session_mgr.login(username, password)
+        # Fallback: Try 2FA login if secret_key is present
+        acct = await self.db.get_account(username)
+        secret_key = acct.get("secret_key") if acct else None
+        if secret_key and password:
+            login_success = await self.session_mgr.authenticate_with_secret(username, secret_key, password)
+            if login_success:
+                logger.info("Account %s logged in via 2FA fallback", username)
+                return True
+            else:
+                logger.warning("2FA login failed for %s, trying password fallback", username)
+
+        # Fallback: Try password login
+        if password:
+            login_success = await self.session_mgr.login(username, password)
+            if login_success:
+                logger.info("Account %s logged in via password fallback", username)
+                return True
+            else:
+                logger.error("Password login failed for %s", username)
+                return False
+        logger.error("No password found for %s, cannot login", username)
+        return False
 
     async def run_campaign(self, campaign_id: int) -> None:
         """Run a campaign through its full lifecycle.

@@ -14,9 +14,12 @@ from .monitor import Monitor
 
 logger = logging.getLogger("ig-automator.warmup")
 
+# Reusable nav helper — avoids repeating the same goto args everywhere
+_NAV_OPTS = {"wait_until": "domcontentloaded", "timeout": 60000}
+
 
 class WarmupEngine:
-    """Simulates human behavior to warm up Instagram accounts before DM sending."""
+    """Simulates human behavior to warm up Instagram accounts before DM campaigns."""
 
     def __init__(self, config: dict, db: Database, session_mgr: SessionManager, monitor: Monitor) -> None:
         warmup_cfg = config.get("warmup", {})
@@ -157,10 +160,9 @@ class WarmupEngine:
     async def _scroll_feed(self, page: Page, username: str) -> bool:
         """Scroll the Instagram feed naturally."""
         try:
-            await page.goto("https://www.instagram.com/", wait_until="networkidle", timeout=20000)
+            await page.goto("https://www.instagram.com/", **_NAV_OPTS)
             await page.wait_for_timeout(random.randint(2000, 5000))
 
-            # Scroll down several times
             for _ in range(random.randint(3, 8)):
                 await page.evaluate("window.scrollBy(0, window.innerHeight * (0.6 + Math.random() * 0.4))")
                 await page.wait_for_timeout(random.randint(1500, 4000))
@@ -175,10 +177,9 @@ class WarmupEngine:
     async def _view_stories(self, page: Page, username: str) -> bool:
         """View stories on the feed."""
         try:
-            await page.goto("https://www.instagram.com/", wait_until="networkidle", timeout=20000)
+            await page.goto("https://www.instagram.com/", **_NAV_OPTS)
             await page.wait_for_timeout(random.randint(2000, 4000))
 
-            # Click on first story circle if available
             story_buttons = page.locator('div[role="button"] canvas, button[aria-label*="Story"]')
             count = await story_buttons.count()
             if count > 0:
@@ -186,22 +187,19 @@ class WarmupEngine:
                 await story_buttons.nth(idx).click()
                 await page.wait_for_timeout(random.randint(3000, 8000))
 
-                # Watch a few stories
                 for _ in range(random.randint(1, 4)):
                     await page.wait_for_timeout(random.randint(4000, 10000))
-                    # Tap to next story
                     try:
                         await page.keyboard.press("ArrowRight")
                     except Exception:
                         break
 
-                # Close stories
                 try:
                     close_btn = page.locator('button[aria-label="Close"], svg[aria-label="Close"]')
                     if await close_btn.count() > 0:
                         await close_btn.first.click()
                 except Exception:
-                    await page.goto("https://www.instagram.com/")
+                    await page.goto("https://www.instagram.com/", **_NAV_OPTS)
 
                 await self.db.log_warmup_action(username, "view_stories", "Watched stories")
                 logger.debug("Viewed stories for %s", username)
@@ -215,14 +213,12 @@ class WarmupEngine:
     async def _like_posts(self, page: Page, username: str) -> bool:
         """Like a post on the feed."""
         try:
-            await page.goto("https://www.instagram.com/", wait_until="networkidle", timeout=20000)
+            await page.goto("https://www.instagram.com/", **_NAV_OPTS)
             await page.wait_for_timeout(random.randint(2000, 5000))
 
-            # Scroll to a post
             await page.evaluate("window.scrollBy(0, window.innerHeight)")
             await page.wait_for_timeout(random.randint(1000, 3000))
 
-            # Find like buttons (unfilled heart)
             like_buttons = page.locator('svg[aria-label="Like"][width="24"], span[class*="like"] button')
             count = await like_buttons.count()
             if count > 0:
@@ -249,10 +245,9 @@ class WarmupEngine:
     async def _view_reels(self, page: Page, username: str) -> bool:
         """Browse Instagram Reels."""
         try:
-            await page.goto("https://www.instagram.com/reels/", wait_until="networkidle", timeout=20000)
+            await page.goto("https://www.instagram.com/reels/", **_NAV_OPTS)
             await page.wait_for_timeout(random.randint(3000, 7000))
 
-            # Watch a few reels by scrolling
             for _ in range(random.randint(2, 5)):
                 await page.evaluate("window.scrollBy(0, window.innerHeight)")
                 await page.wait_for_timeout(random.randint(5000, 15000))
@@ -267,7 +262,7 @@ class WarmupEngine:
     async def _follow_suggested(self, page: Page, username: str) -> bool:
         """Follow a suggested account (sparingly)."""
         try:
-            await page.goto("https://www.instagram.com/explore/people/", wait_until="networkidle", timeout=20000)
+            await page.goto("https://www.instagram.com/explore/people/", **_NAV_OPTS)
             await page.wait_for_timeout(random.randint(2000, 5000))
 
             follow_buttons = page.locator('button:has-text("Follow")')

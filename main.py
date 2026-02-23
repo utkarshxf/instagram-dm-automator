@@ -12,6 +12,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.progress import Progress
 from rich.logging import RichHandler
+import pyotp
 
 from src.db import Database
 from src.campaign import CampaignOrchestrator
@@ -30,7 +31,7 @@ logging.basicConfig(
     datefmt="[%X]",
     handlers=[
         RichHandler(console=console, rich_tracebacks=True),
-        logging.FileHandler(os.path.join(LOG_DIR, f"automator_{datetime.now():%Y%m%d}.log")),
+        logging.FileHandler(os.path.join(LOG_DIR, f"automator_{datetime.now():%Y%m%d}.log"), encoding="utf-8"),
     ],
 )
 logger = logging.getLogger("ig-automator")
@@ -64,14 +65,15 @@ def cli(ctx, config):
 @click.argument("username")
 @click.argument("password")
 @click.option("--proxy", "-p", default="", help="Proxy URL (http://user:pass@host:port)")
+@click.option("--secret-key", "--totp", "-s", default="", help="2FA TOTP secret key")
 @click.pass_context
-def add_account(ctx, username, password, proxy):
+def add_account(ctx, username, password, proxy, secret_key):
     """Add an Instagram account."""
     async def _run():
         db = Database()
         await db.connect()
         try:
-            aid = await db.add_account(username, password, proxy)
+            aid = await db.add_account(username, password, proxy, secret_key)
             if aid:
                 console.print(f"[green]✓ Account @{username} added (ID: {aid})[/green]")
             else:
@@ -366,6 +368,142 @@ def export_data(ctx, campaign_id, output, export_type):
         finally:
             await db.close()
 
+    run_async(_run())
+
+
+@cli.command("open-session")
+@click.argument("username")
+@click.option("--proxy", default="", help="Proxy URL (http://user:pass@host:port)")
+@click.pass_context
+def open_session(ctx, username, proxy):
+    """Open a persistent browser session for manual login (onboarding)."""
+    config = load_config(ctx.obj["config_path"])
+    from src.session_manager import SessionManager
+    import asyncio
+    async def _run():
+        mgr = SessionManager()
+        await mgr.start()
+        proxy_dict = None
+        if proxy:
+            # Optionally parse proxy string to dict if needed
+            from src.proxy_manager import ProxyManager
+            proxy_dict = ProxyManager(config, None).parse_proxy_for_playwright(proxy)
+        console.print(f"[yellow]Launching browser for @{username}...[/yellow]")
+        ctx_obj = await mgr.create_context(username, proxy=proxy_dict, headless=False)
+        page = ctx_obj.pages[0] if ctx_obj.pages else await ctx_obj.new_page()
+        await page.goto("https://www.instagram.com/", wait_until="domcontentloaded")
+        console.print(f"[bold green]Please log in to Instagram for @{username} in the opened browser window.[/bold green]")
+        console.print("Once you have completed login and see your feed, close the browser window to finish onboarding.")
+        # Wait for browser to close
+        while True:
+            if len(ctx_obj.pages) == 0:
+                break
+            await asyncio.sleep(1)
+        await mgr.stop()
+        console.print(f"[green]Onboarding complete for @{username}. Future runs will reuse this session.[/green]")
+    run_async(_run())
+
+
+@cli.command("check-session")
+@click.argument("username")
+@click.option("--proxy", default="", help="Proxy URL (http://user:pass@host:port)")
+@click.pass_context
+def check_session(ctx, username, proxy):
+    """Check if a persistent session is logged in for the given username."""
+    config = load_config(ctx.obj["config_path"])
+    from src.session_manager import SessionManager
+    import asyncio
+    async def _run():
+        mgr = SessionManager()
+        await mgr.start()
+        proxy_dict = None
+        if proxy:
+            from src.proxy_manager import ProxyManager
+            proxy_dict = ProxyManager(config, None).parse_proxy_for_playwright(proxy)
+        ctx_obj = await mgr.create_context(username, proxy=proxy_dict, headless=True)
+        logged_in = await mgr.is_logged_in(username)
+        if logged_in:
+            console.print(f"[green]@{username} is logged in![/green]")
+        else:
+            console.print(f"[red]@{username} is NOT logged in. See not_logged_in_{username}.png for a screenshot.[/red]")
+        await mgr.stop()
+    run_async(_run())
+
+
+@cli.command("reset-campaign-status")
+@click.argument("campaign_id", type=int)
+@click.option("--status", default="created", help="New status for the campaign (default: created)")
+@click.pass_context
+def reset_campaign_status(ctx, campaign_id, status):
+    """Reset the status of a campaign (e.g., to 'created' or 'active')."""
+    async def _run():
+        db = Database()
+        await db.connect()
+        try:
+            await db.update_campaign(campaign_id, status=status)
+            console.print(f"[green]Campaign {campaign_id} status set to '{status}'[/green]")
+        finally:
+            await db.close()
+    run_async(_run())
+
+
+@cli.command("onboard-account")
+@click.argument("username")
+@click.option("--proxy", default="", help="Proxy URL (http://user:pass@host:port)")
+@click.pass_context
+def onboard_account(ctx, username, proxy):
+    """Onboard an account: try persistent session, fallback to 2FA or password login."""
+    config = load_config(ctx.obj["config_path"])
+    from src.session_manager import SessionManager
+    from src.db import Database
+    import asyncio
+    async def _run():
+        db = Database()
+        await db.connect()
+        acct = await db.get_account(username)
+        if not acct:
+            console.print(f"[red]Account {username} not found in DB. Add it first with add-account.")
+            await db.close()
+            return
+        mgr = SessionManager()
+        await mgr.start()
+        proxy_dict = None
+        if proxy:
+            from src.proxy_manager import ProxyManager
+            proxy_dict = ProxyManager(config, db).parse_proxy_for_playwright(proxy)
+        # 1. Try persistent session
+        ctx_obj = await mgr.create_context(username, proxy=proxy_dict, headless=False)
+        if await mgr.is_logged_in(username):
+            console.print(f"[green]Persistent session found for @{username}. Onboarding complete.")
+            await mgr.stop()
+            await db.close()
+            return
+        # 2. Fallback: Try 2FA login if secret_key is present
+        secret_key = acct.get("secret_key")
+        password = acct.get("password")
+        if secret_key:
+            totp = pyotp.TOTP(secret_key)
+            passcode = totp.now()
+            console.print(f"[yellow]Persistent session not found. Trying 2FA login for @{username} with TOTP: {passcode}")
+            login_success = await mgr.authenticate_with_secret(username, secret_key, password)
+            if login_success:
+                console.print(f"[green]2FA login successful for @{username}. Onboarding complete.")
+                await mgr.stop()
+                await db.close()
+                return
+            else:
+                console.print(f"[red]2FA login failed for @{username}. Trying password login...")
+        # 3. Fallback: Try password login
+        if password:
+            login_success = await mgr.login(username, password)
+            if login_success:
+                console.print(f"[green]Password login successful for @{username}. Onboarding complete.")
+            else:
+                console.print(f"[red]Password login failed for @{username}. Manual intervention required.")
+        else:
+            console.print(f"[red]No password found for @{username}. Manual intervention required.")
+        await mgr.stop()
+        await db.close()
     run_async(_run())
 
 
