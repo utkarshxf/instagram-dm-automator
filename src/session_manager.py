@@ -133,9 +133,12 @@ class SessionManager:
 
         # Apply stealth via playwright-stealth
         try:
-            from playwright_stealth import stealth_async
+            from playwright_stealth import Stealth
+
+            stealth = Stealth()  # can pass options here if needed
+            await stealth.apply_stealth_async(context)  # patches all pages in this context
+
             page = await context.new_page()
-            await stealth_async(page)
             self._pages[username] = page
         except ImportError:
             logger.warning("playwright-stealth not installed; running without stealth patches")
@@ -210,19 +213,29 @@ class SessionManager:
             await page.wait_for_timeout(5000)
 
             # Check for 2FA / challenge
-            if "challenge" in page.url or "two_factor" in page.url:
-                logger.warning("2FA required for %s — waiting for manual code entry", username)
-                # In a real CLI scenario we'd prompt; here we wait up to 120s
-                code = input(f"Enter 2FA code for {username}: ").strip()
-                if code:
-                    code_input = page.locator('input[name="verificationCode"], input[name="security_code"]')
-                    if await code_input.count() > 0:
-                        await code_input.first.type(code, delay=100)
-                        await page.locator('button:has-text("Confirm"), button[type="submit"]').first.click()
-                        await page.wait_for_timeout(5000)
+            content = (await page.content()).lower()
+            if "challenge" in page.url or "two_factor" in page.url or "confirm your identity" in content or "suspicious activity" in content:
+                logger.warning("Challenge/Identity verification required for %s", username)
+                logger.info("Please complete the verification in the browser if possible, or follow the prompts.")
+                
+                # Try to find a code input field if it's a 2FA challenge
+                code_input = page.locator('input[name="verificationCode"], input[name="security_code"]')
+                if await code_input.count() > 0:
+                    # In a real CLI scenario we'd prompt; here we wait up to 120s
+                    try:
+                        code = input(f"Enter verification code for {username}: ").strip()
+                        if code:
+                            await code_input.first.type(code, delay=100)
+                            await page.locator('button:has-text("Confirm"), button:has-text("Next"), button[type="submit"]').first.click()
+                            await page.wait_for_timeout(5000)
+                    except EOFError:
+                        logger.error("No input stream available for 2FA code")
 
             # Check success
-            if "login" not in page.url and "challenge" not in page.url:
+            final_content = (await page.content()).lower()
+            is_success = "login" not in page.url and "challenge" not in page.url and "confirm your identity" not in final_content
+            
+            if is_success:
                 logger.info("Login successful for %s", username)
                 await self.save_cookies(username)
                 return True
