@@ -1,58 +1,52 @@
 # Instagram DM Automator
 
-A Python-based Instagram cold DM automation tool with safety-first design: account warming, gradual scaling, proxy rotation, fingerprint management, message personalization, and intelligent rate limiting.
+A robust, safety-first Python tool for automating Instagram cold DMs at scale. Features persistent browser sessions, account warming, gradual scaling, proxy rotation, fingerprint management, message personalization, intelligent rate limiting, and advanced fallback login logic (persistent session, 2FA, password).
 
-> ⚠️ **Disclaimer**: This tool automates interactions with Instagram, which may violate Instagram's Terms of Service. Use at your own risk. The authors are not responsible for any account bans, restrictions, or other consequences. This tool is provided for educational purposes only.
+> ⚠️ **Disclaimer**: Automating Instagram may violate their Terms of Service. Use at your own risk. The authors are not responsible for any bans, restrictions, or consequences. Educational use only.
+
+---
+
+## Table of Contents
+- [Features](#features)
+- [How It Works](#how-it-works)
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [Account Onboarding & Login Fallbacks](#account-onboarding--login-fallbacks)
+- [Campaign Workflow](#campaign-workflow)
+- [Message Templates & Personalization](#message-templates--personalization)
+- [CLI Usage](#cli-usage)
+- [Troubleshooting & FAQ](#troubleshooting--faq)
+- [Project Structure](#project-structure)
+- [Safety Guidelines](#safety-guidelines)
+
+---
 
 ## Features
+- **Persistent Browser Sessions**: Log in once, reuse session for all campaigns (no repeated logins, fewer blocks).
+- **Automatic Login Fallbacks**: If persistent session fails, tries 2FA (TOTP) login, then password login.
+- **Account Warming**: Simulates human activity for 48-72h before sending DMs.
+- **Gradual Scaling**: Day 1: 20 DMs → Day 2: 30 → Day 3: 40 → Day 4+: 50.
+- **Proxy Rotation**: Supports residential/mobile proxies, max 5 accounts per IP.
+- **Fingerprint Management**: Unique device profile per account (user agent, viewport, timezone).
+- **Message Personalization**: Spintext + Jinja2 templates with variables.
+- **Rate Limiting**: 10/hour, 50/day per account, with cooldowns.
+- **Block Detection**: Auto-pause on action blocks, exponential backoff.
+- **Campaign Management**: Full state machine, parallel account orchestration.
+- **SQLite Persistence**: Resume campaigns after restart, full audit trail.
+- **Rich CLI**: Pretty tables, progress bars, color-coded output.
 
-- 🔥 **Account Warming** — Human-like behavior simulation (48-72h) before sending
-- 📈 **Gradual Scaling** — Day 1: 20 DMs → Day 2: 30 → Day 3: 40 → Day 4+: 50
-- 🔄 **Proxy Rotation** — Residential/mobile proxy support, max 5 accounts per IP
-- 🎭 **Fingerprint Management** — Unique device profile per account (UA, viewport, timezone)
-- ✉️ **Message Personalization** — Spintext engine + Jinja2 templates with variables
-- ⏱️ **Rate Limiting** — 10/hour, 50/day per account with automatic cooldowns
-- 🛡️ **Block Detection** — Auto-pause on action blocks with exponential backoff
-- 📊 **Campaign Management** — Full state machine with parallel account orchestration
-- 💾 **SQLite Persistence** — Resume campaigns after restart, full audit trail
-- 🎨 **Rich CLI** — Pretty tables, progress bars, color-coded output
+---
 
-## Architecture
+## How It Works
 
-```
-┌─────────────────────────────────────────────────┐
-│                    main.py (CLI)                 │
-│         Click commands + Rich output             │
-└───────────────────┬─────────────────────────────┘
-                    │
-┌───────────────────▼─────────────────────────────┐
-│              campaign.py (Orchestrator)           │
-│    State Machine: CREATED→WARMING→SCALING→ACTIVE  │
-│         Manages parallel account tasks            │
-└──┬──────┬──────┬──────┬──────┬──────┬───────────┘
-   │      │      │      │      │      │
-   ▼      ▼      ▼      ▼      ▼      ▼
-┌─────┐┌─────┐┌─────┐┌─────┐┌─────┐┌─────┐
-│Warm-││ DM  ││Scra-││Proxy││Rate ││Moni-│
-│up   ││Disp.││per  ││Mgr  ││Limit││tor  │
-│     ││     ││     ││     ││     ││     │
-└──┬──┘└──┬──┘└──┬──┘└──┬──┘└──┬──┘└──┬──┘
-   │      │      │      │      │      │
-   └──────┴──────┴──────┼──────┴──────┘
-                        │
-         ┌──────────────▼──────────────┐
-         │    session_manager.py       │
-         │  Playwright + Stealth       │
-         │  Cookie persistence         │
-         │  Fingerprint per account    │
-         └──────────────┬──────────────┘
-                        │
-         ┌──────────────▼──────────────┐
-         │         db.py (SQLite)       │
-         │  accounts, targets, messages │
-         │  campaigns, warmup_log       │
-         └─────────────────────────────┘
-```
+1. **Add your Instagram accounts** (with password and optional 2FA secret key).
+2. **Onboard accounts**: The tool tries to reuse a persistent browser session. If not logged in, it falls back to 2FA or password login automatically.
+3. **Import or scrape targets** for your campaign.
+4. **Create a campaign**: Assign accounts, message templates, and settings.
+5. **Start the campaign**: The tool warms up accounts, gradually scales DM sending, and handles all safety logic.
+6. **Monitor progress**: View status, pause/resume, and export results.
+
+---
 
 ## Installation
 
@@ -61,7 +55,6 @@ A Python-based Instagram cold DM automation tool with safety-first design: accou
 - pip
 
 ### Steps
-
 ```bash
 # 1. Clone/download the project
 cd instagram-dm-automator
@@ -77,9 +70,11 @@ cp config.example.json config.json
 # Edit config.json with your accounts, proxies, and templates
 ```
 
-## Configuration Guide
+---
 
-Copy `config.example.json` to `config.json` and customize:
+## Configuration
+
+Edit `config.json` (see `config.example.json` for reference):
 
 ### Accounts
 ```json
@@ -87,7 +82,8 @@ Copy `config.example.json` to `config.json` and customize:
   {
     "username": "your_ig_username",
     "password": "your_ig_password",
-    "proxy": "http://user:pass@residential-proxy:port"
+    "proxy": "http://user:pass@residential-proxy:port",
+    "secret_key": "YOUR_TOTP_SECRET"  // Optional, for 2FA fallback
   }
 ]
 ```
@@ -95,63 +91,82 @@ Copy `config.example.json` to `config.json` and customize:
 ### Warmup Settings
 ```json
 "warmup": {
-  "duration_hours": 48,          // 48-72h recommended
-  "actions_per_session": 15,     // Actions per warmup session
-  "session_gap_minutes": 120     // Gap between sessions
+  "duration_hours": 48,
+  "actions_per_session": 15,
+  "session_gap_minutes": 120
 }
 ```
 
 ### DM Settings
 ```json
 "dm": {
-  "daily_limit": 50,             // Max DMs per day per account
-  "hourly_limit": 10,            // Max DMs per hour per account
-  "min_delay_seconds": 120,      // Min delay between DMs (2 min)
-  "max_delay_seconds": 420,      // Max delay between DMs (7 min)
-  "scaling_days": 4,             // Days to reach full volume
-  "scaling_start": 20,           // DMs on day 1
-  "scaling_increment": 10        // Daily increase
+  "daily_limit": 50,
+  "hourly_limit": 10,
+  "min_delay_seconds": 120,
+  "max_delay_seconds": 420,
+  "scaling_days": 4,
+  "scaling_start": 20,
+  "scaling_increment": 10
 }
 ```
 
 ### Templates (Spintext + Variables)
 ```json
 "templates": [
-  "{Hi|Hey|Hello} {{ first_name }}! Loved your {{ niche }} content 🙌",
-  "Hey {{ first_name }}, would love to connect about {{ niche }}!"
+  "Hey {first_name}! I noticed your work in {niche} and wanted to connect. Would love to chat about a potential collaboration 🙌",
+  "{Hi|Hello|Hey} {first_name}, I came across your profile and really liked your content. Quick question — are you open to exploring new opportunities?",
+  "Hi {first_name}! Your {niche} content is amazing. I'm working on something similar and thought we could help each other out. Mind if I share?"
 ]
 ```
-
-Available variables: `first_name`, `username`, `bio_keyword`, `niche`
-
-Spintext: `{option1|option2|option3}` — randomly picks one
+- **Variables:** `first_name`, `username`, `bio_keyword`, `niche`
+- **Spintext:** `{option1|option2|option3}` — randomly picks one
+- **Jinja2:** Use `{{ variable }}` for advanced logic
 
 ### Schedule
 ```json
 "schedule": {
-  "active_hours_start": 8,       // Start sending at 8 AM
-  "active_hours_end": 23,        // Stop at 11 PM
-  "days_off": ["Sunday"]         // No sending on Sundays
+  "active_hours_start": 8,
+  "active_hours_end": 23,
+  "days_off": ["Sunday"]
 }
 ```
 
-## Usage
+---
 
-### Add an Account
+## Account Onboarding & Login Fallbacks
+
+When you start a campaign, the tool will automatically:
+1. **Try to reuse the persistent browser session** (no login needed if already logged in).
+2. **If not logged in:**
+   - If a 2FA secret key is present, it will generate a TOTP code and attempt 2FA login.
+   - If 2FA fails or is not configured, it will attempt password login.
+3. **If all fail:** You will be prompted to run `python main.py open-session <username>` and log in manually in a browser window.
+
+**Manual Onboarding (if needed):**
 ```bash
-python main.py add-account myusername mypassword --proxy http://user:pass@host:port
+python main.py open-session <username>
+# Log in manually, solve any Instagram challenges, then close the browser window.
 ```
 
-### Import Targets
+---
+
+## Campaign Workflow
+
+### 1. Add Accounts
 ```bash
-# From CSV (columns: username, full_name, bio, follower_count)
+python main.py add-account myusername mypassword --proxy http://user:pass@host:port --secret-key YOUR_TOTP_SECRET
+```
+
+### 2. Import or Scrape Targets
+```bash
+# Import from CSV (columns: username, full_name, bio, follower_count)
 python main.py add-targets --csv targets.csv --campaign 1
 
-# Scrape from Instagram account
+# Scrape followers from a public account
 python main.py add-targets --scrape competitor_account --campaign 1
 ```
 
-### Create a Campaign
+### 3. Create a Campaign
 ```bash
 python main.py create-campaign "Q1 Outreach" \
   --niche "fitness" \
@@ -159,62 +174,64 @@ python main.py create-campaign "Q1 Outreach" \
   --template 0
 ```
 
-### Start a Campaign
+### 4. Start a Campaign
 ```bash
 python main.py start 1
 ```
-The tool will automatically:
-1. Warm up accounts (48-72h of human-like activity)
-2. Gradually scale sending (20 → 30 → 40 → 50/day)
-3. Send personalized DMs with random delays
-4. Detect and handle blocks automatically
+- The tool will automatically warm up accounts, scale DM sending, and handle all login fallbacks.
 
-### Check Status
+### 5. Monitor & Manage
 ```bash
-# All campaigns
+# Check all campaigns
 python main.py status
 
-# Specific campaign
+# Check a specific campaign
 python main.py status --campaign 1
-```
 
-### Pause / Resume
-```bash
+# Pause/resume
 python main.py pause 1
 python main.py resume 1
-```
 
-### Export Data
-```bash
-# Export sent messages
+# Export data
 python main.py export --campaign 1 --type messages -o messages.csv
-
-# Export targets
 python main.py export --campaign 1 --type targets -o targets.csv
 ```
 
-## Safety Guidelines
+---
 
-1. **Use residential/mobile proxies** — Datacenter proxies get detected instantly
-2. **Don't skip warmup** — New accounts need 48-72h of normal activity
-3. **Keep daily limits low** — 50/day max is already aggressive; 30 is safer
-4. **Use multiple accounts** — Spread volume across accounts
-5. **Max 5 accounts per proxy IP** — More triggers Instagram's fraud detection
-6. **Vary your messages** — Use spintext and multiple templates
-7. **Respect cooldowns** — If blocked, wait the full cooldown period
-8. **Monitor blocks** — Set up webhook alerts (Discord/Telegram)
-9. **Don't run 24/7** — Use schedule settings for realistic activity windows
+## Message Templates & Personalization
 
-## Troubleshooting
+- **Spintext:** Use `{Hi|Hey|Hello}` to randomize greetings.
+- **Variables:** Use `{first_name}`, `{niche}`, `{bio_keyword}` for dynamic content.
+- **Jinja2:** Advanced logic with `{{ ... }}` (e.g., `{{ first_name|capitalize }}`).
+- **Deduplication:** The engine ensures no two consecutive messages from the same account are identical.
+
+**Example:**
+```json
+"templates": [
+  "{Hi|Hey|Hello} {{ first_name }}! Loved your {{ niche }} content 🙌",
+  "Hey {{ first_name }}, would love to connect about {{ niche }}!"
+]
+```
+
+---
+
+## Troubleshooting & FAQ
 
 | Issue | Solution |
 |-------|----------|
-| Login fails | Check credentials; ensure 2FA app is ready for code prompt |
+| Login fails | Check credentials; ensure 2FA app is ready for code prompt; try manual onboarding |
 | "Action blocked" | Account is rate-limited; tool auto-pauses with cooldown |
 | Proxy errors | Run health check; ensure proxy supports HTTPS |
 | No message button | Target may have DM restrictions; tool auto-skips |
 | Playwright crash | Run `playwright install chromium` again |
 | Database locked | Only run one instance at a time |
+| Instagram checkpoint | Run `python main.py open-session <username>` and resolve challenge |
+| pyotp not found | Run `pip install pyotp` |
+
+**Screenshots:** If login fails, check the generated `not_logged_in_<username>.png` for clues.
+
+---
 
 ## Project Structure
 
@@ -225,7 +242,7 @@ instagram-dm-automator/
 ├── config.example.json     # Template configuration
 ├── requirements.txt        # Python dependencies
 ├── src/
-│   ├── session_manager.py  # Playwright browser + stealth + cookies
+│   ├── session_manager.py  # Playwright browser + stealth + cookies + login fallback
 │   ├── warmup_engine.py    # Human-like account warming
 │   ├── dm_dispatcher.py    # DM sending with scaling
 │   ├── scraper.py          # Lead scraping (separate session)
@@ -238,6 +255,31 @@ instagram-dm-automator/
 ├── data/                   # Cookies, DB, exports
 └── logs/                   # Daily log files
 ```
+
+---
+
+## Safety Guidelines
+
+1. **Use residential/mobile proxies** — Datacenter proxies get detected instantly.
+2. **Don't skip warmup** — New accounts need 48-72h of normal activity.
+3. **Keep daily limits low** — 50/day max is already aggressive; 30 is safer.
+4. **Use multiple accounts** — Spread volume across accounts.
+5. **Max 5 accounts per proxy IP** — More triggers Instagram's fraud detection.
+6. **Vary your messages** — Use spintext and multiple templates.
+7. **Respect cooldowns** — If blocked, wait the full cooldown period.
+8. **Monitor blocks** — Set up webhook alerts (Discord/Telegram).
+9. **Don't run 24/7** — Use schedule settings for realistic activity windows.
+
+---
+
+## Advanced Usage & Tips
+- **2FA Fallback:** Add your TOTP secret to `config.json` for each account for automated 2FA login.
+- **Persistent Sessions:** Once logged in, sessions are reused for all future campaigns.
+- **Manual Login:** If all else fails, use `open-session` to log in via browser and solve any Instagram challenges.
+- **Custom Templates:** Use advanced Jinja2 and spintext for highly personalized outreach.
+- **Scaling:** Safely increase volume by adding more warmed-up accounts and proxies.
+
+---
 
 ## License
 
