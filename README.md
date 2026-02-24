@@ -180,22 +180,49 @@ python main.py start 1
 ```
 - The tool will automatically warm up accounts, scale DM sending, and handle all login fallbacks.
 
-### 5. Monitor & Manage
-```bash
-# Check all campaigns
-python main.py status
+### REST API & Multi-Tenancy (New)
+The project now includes a scalable FastAPI backend with MongoDB and Redis:
+- **Multi-Tenancy:** Each user's accounts, campaigns, and targets are strictly isolated.
+- **Async Processing:** Campaigns run in background workers via Redis/Arq.
+- **REST API:** Manage everything via standard HTTP endpoints.
 
-# Check a specific campaign
-python main.py status --campaign 1
-
-# Pause/resume
-python main.py pause 1
-python main.py resume 1
-
-# Export data
-python main.py export --campaign 1 --type messages -o messages.csv
-python main.py export --campaign 1 --type targets -o targets.csv
+#### Backend Setup:
+1.  **MongoDB & Redis:** Ensure they are running.
+2.  **Environment Variables:**
+    ```bash
+    export MONGO_URL="mongodb://localhost:27017"
+    export REDIS_HOST="localhost"
+    export SECRET_KEY="your_jwt_secret"
+    ```
+3.  **Run API:**
+    ```bash
+    uvicorn backend.app.main:app --reload
 ```
+
+## Production Deployment (Recommended)
+
+For production, it is highly recommended to use **Docker** to ensure all browser dependencies are correctly installed and isolated.
+
+### 1. One-Click Deployment (Docker Compose)
+The project includes a `docker-compose.yml` that orchestrates the API, Worker, MongoDB, and Redis.
+
+```bash
+docker-compose up -d --build
+```
+
+### 2. Environment Configuration
+Create a `.env` file in the root directory:
+```env
+SECRET_KEY="your_secure_random_string"
+MONGO_URL="mongodb://mongodb:27017"
+REDIS_HOST="redis"
+LOG_LEVEL=INFO
+JSON_LOGS=True
+```
+
+### 3. Monitoring
+- **Logs:** `docker-compose logs -f api` or `docker-compose logs -f worker`
+- **Background Tasks:** Arq jobs can be monitored via Redis.
 
 ---
 
