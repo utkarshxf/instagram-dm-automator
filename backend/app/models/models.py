@@ -65,3 +65,16 @@ class Target(TargetBase):
     campaign_id: str
     status: str = "pending"
     created_at: datetime
+
+class TemplateBase(BaseModel):
+    name: str
+    content: str
+
+class TemplateCreate(TemplateBase):
+    pass
+
+class Template(TemplateBase):
+    id: str = Field(alias="_id")
+    user_id: str
+    created_at: datetime
+    updated_at: datetime

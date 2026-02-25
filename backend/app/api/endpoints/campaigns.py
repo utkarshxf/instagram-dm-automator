@@ -79,3 +79,15 @@ async def add_targets(campaign_id: str, targets: List[dict], user = Depends(get_
     await db.campaigns.update_one({"_id": ObjectId(campaign_id)}, {"$set": {"total_targets": total}})
     
     return {"status": "added", "count": len(targets)}
+
+@router.get("/{campaign_id}/targets", response_model=List[dict])
+async def list_targets(campaign_id: str, user = Depends(get_current_user), db = Depends(get_db)):
+    # Check if campaign exists and belongs to user
+    campaign = await db.campaigns.find_one({"_id": ObjectId(campaign_id), "user_id": user["id"]})
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+    
+    targets = await db.targets.find({"campaign_id": campaign_id, "user_id": user["id"]}).to_list(1000)
+    for t in targets:
+        t["_id"] = str(t["_id"])
+    return targets
