@@ -78,3 +78,46 @@ class Template(TemplateBase):
     user_id: str
     created_at: datetime
     updated_at: datetime
+
+class WarmupSettings(BaseModel):
+    duration_hours: int = 0
+    actions_per_session: int = 15
+    session_gap_minutes: int = 120
+
+class DMSettings(BaseModel):
+    daily_limit: int = 50
+    hourly_limit: int = 10
+    min_delay_seconds: int = 120
+    max_delay_seconds: int = 420
+    scaling_days: int = 4
+    scaling_start: int = 20
+    scaling_increment: int = 10
+
+class ScrapingSettings(BaseModel):
+    targets_per_run: int = 500
+    min_followers: int = 100
+    max_followers: int = 50000
+    has_bio: bool = True
+    is_private: bool = False
+
+class ProxySettings(BaseModel):
+    max_accounts_per_ip: int = 5
+    rotation_enabled: bool = True
+
+class MonitorSettings(BaseModel):
+    webhook_url: Optional[str] = ""
+    pause_on_block_hours: int = 72
+    max_blocks_before_disable: int = 3
+
+class ScheduleSettings(BaseModel):
+    active_hours_start: int = 8
+    active_hours_end: int = 23
+    days_off: List[str] = ["Sunday"]
+
+class GlobalSettings(BaseModel):
+    warmup: WarmupSettings = WarmupSettings()
+    dm: DMSettings = DMSettings()
+    scraping: ScrapingSettings = ScrapingSettings()
+    proxy: ProxySettings = ProxySettings()
+    monitor: MonitorSettings = MonitorSettings()
+    schedule: ScheduleSettings = ScheduleSettings()

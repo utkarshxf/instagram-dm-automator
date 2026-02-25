@@ -21,25 +21,18 @@ async def run_campaign(ctx, campaign_id: str, user_id: str):
         
         db_adapter = MongoDBDatabase(MongoDB.db, user_id)
         
-        # Load config from file
-        import json
-        try:
-            with open("config.json", "r") as f:
-                config = json.load(f)
-        except Exception:
-            config = {
-                "dm": {"hourly_limit": 10, "daily_limit": 50},
-                "proxy": {"max_accounts_per_ip": 5, "rotation_enabled": True},
-                "monitor": {"pause_on_block_hours": 72, "max_blocks_before_disable": 3},
-                "schedule": {"active_hours_start": 0, "active_hours_end": 23},
-                "templates": []
-            }
-        
-        # Override schedule for testing if needed
-        if "schedule" not in config:
-            config["schedule"] = {}
-        config["schedule"]["active_hours_start"] = 0
-        config["schedule"]["active_hours_end"] = 23
+        # Load config from MongoDB
+        settings_doc = await MongoDB.db.settings.find_one({"user_id": user_id})
+        if settings_doc:
+            # Convert MongoDB doc to dict and remove _id and user_id
+            config = settings_doc
+            if "_id" in config: del config["_id"]
+            if "user_id" in config: del config["user_id"]
+            if "updated_at" in config: del config["updated_at"]
+        else:
+            # Fallback to defaults if no settings found in DB
+            from ..models.models import GlobalSettings
+            config = GlobalSettings().dict()
         
         orchestrator = CampaignOrchestrator(config, db_adapter, user_id=user_id)
         

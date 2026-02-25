@@ -17,6 +17,8 @@ class MongoDB:
         await cls.db.accounts.create_index([("user_id", 1), ("username", 1)], unique=True)
         await cls.db.campaigns.create_index("user_id")
         await cls.db.targets.create_index([("user_id", 1), ("campaign_id", 1), ("username", 1)], unique=True)
+        await cls.db.templates.create_index("user_id")
+        await cls.db.settings.create_index("user_id", unique=True)
 
     @classmethod
     async def close(cls):

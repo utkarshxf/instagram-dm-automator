@@ -66,70 +66,26 @@ pip install -r requirements.txt
 playwright install chromium
 
 # 4. Configure
-cp config.example.json config.json
-# Edit config.json with your accounts, proxies, and templates
+# Use the API or Dashboard to set up your global settings and accounts.
+# For Docker usage, see the Production Deployment section.
 ```
 
 ---
 
 ## Configuration
 
-Edit `config.json` (see `config.example.json` for reference):
+Automation settings (limits, delays, schedules) are managed per-user via the REST API and stored in MongoDB.
 
-### Accounts
-```json
-"accounts": [
-  {
-    "username": "your_ig_username",
-    "password": "your_ig_password",
-    "proxy": "http://user:pass@residential-proxy:port",
-    "secret_key": "YOUR_TOTP_SECRET"  // Optional, for 2FA fallback
-  }
-]
-```
+### Global Settings Schema
+The system uses the following settings structure for each user:
 
-### Warmup Settings
-```json
-"warmup": {
-  "duration_hours": 48,
-  "actions_per_session": 15,
-  "session_gap_minutes": 120
-}
-```
+- **Warmup:** Control account activity before sending DMs.
+- **DM:** Set daily/hourly limits and scaling parameters.
+- **Scraping:** Configure target acquisition filters.
+- **Proxy:** Manage IP rotation and account limits.
+- **Schedule:** Define active hours and days off.
 
-### DM Settings
-```json
-"dm": {
-  "daily_limit": 50,
-  "hourly_limit": 10,
-  "min_delay_seconds": 120,
-  "max_delay_seconds": 420,
-  "scaling_days": 4,
-  "scaling_start": 20,
-  "scaling_increment": 10
-}
-```
-
-### Templates (Spintext + Variables)
-```json
-"templates": [
-  "Hey {first_name}! I noticed your work in {niche} and wanted to connect. Would love to chat about a potential collaboration 🙌",
-  "{Hi|Hello|Hey} {first_name}, I came across your profile and really liked your content. Quick question — are you open to exploring new opportunities?",
-  "Hi {first_name}! Your {niche} content is amazing. I'm working on something similar and thought we could help each other out. Mind if I share?"
-]
-```
-- **Variables:** `first_name`, `username`, `bio_keyword`, `niche`
-- **Spintext:** `{option1|option2|option3}` — randomly picks one
-- **Jinja2:** Use `{{ variable }}` for advanced logic
-
-### Schedule
-```json
-"schedule": {
-  "active_hours_start": 8,
-  "active_hours_end": 23,
-  "days_off": ["Sunday"]
-}
-```
+For developers, see the `POST /settings/` endpoint documentation for the full JSON schema.
 
 ---
 
@@ -264,21 +220,16 @@ JSON_LOGS=True
 
 ```
 instagram-dm-automator/
-├── main.py                 # CLI entry point (Click + Rich)
-├── config.json             # Your configuration (git-ignored)
-├── config.example.json     # Template configuration
+├── .env                  # Environment variables (Secrets, DB URLs)
 ├── requirements.txt        # Python dependencies
-├── src/
-│   ├── session_manager.py  # Playwright browser + stealth + cookies + login fallback
-│   ├── warmup_engine.py    # Human-like account warming
-│   ├── dm_dispatcher.py    # DM sending with scaling
-│   ├── scraper.py          # Lead scraping (separate session)
-│   ├── proxy_manager.py    # Proxy rotation + health checks
-│   ├── message_templates.py # Spintext + Jinja2 templates
-│   ├── rate_limiter.py     # Hourly/daily limits + backoff
-│   ├── monitor.py          # Block detection + alerts
-│   ├── campaign.py         # Campaign state machine
-│   └── db.py               # SQLite persistence layer
+├── backend/                # FastAPI source code
+│   ├── app/
+│   │   ├── api/            # API Endpoints (Auth, Accounts, Campaigns, Settings, Templates)
+│   │   ├── core/           # Configuration & Logging
+│   │   ├── db/             # MongoDB Adapter
+│   │   ├── models/         # Pydantic Models
+│   │   ├── services/       # Business Logic (Orchestrator, DM Dispatcher, etc.)
+│   │   └── workers/        # Arq background workers
 ├── data/                   # Cookies, DB, exports
 └── logs/                   # Daily log files
 ```
@@ -300,7 +251,7 @@ instagram-dm-automator/
 ---
 
 ## Advanced Usage & Tips
-- **2FA Fallback:** Add your TOTP secret to `config.json` for each account for automated 2FA login.
+- **2FA Fallback:** Add your TOTP secret when adding an Instagram account for automated 2FA login.
 - **Persistent Sessions:** Once logged in, sessions are reused for all future campaigns.
 - **Manual Login:** If all else fails, use `open-session` to log in via browser and solve any Instagram challenges.
 - **Custom Templates:** Use advanced Jinja2 and spintext for highly personalized outreach.

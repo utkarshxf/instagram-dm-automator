@@ -4,43 +4,30 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - MONGO_URL=mongodb://mongodb:27017
-      - REDIS_HOST=redis
-      - SECRET_KEY=your_secure_secret_here
+      - SECRET_KEY=${SECRET_KEY}
+      - MONGO_URL=${MONGO_URL}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - REDIS_USERNAME=${REDIS_USERNAME}
       - LOG_LEVEL=INFO
       - JSON_LOGS=True
-    depends_on:
-      - mongodb
-      - redis
     restart: always
 
   worker:
     build: .
     command: arq backend.app.workers.tasks.WorkerSettings
     environment:
-      - MONGO_URL=mongodb://mongodb:27017
-      - REDIS_HOST=redis
+      - SECRET_KEY=${SECRET_KEY}
+      - MONGO_URL=${MONGO_URL}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - REDIS_USERNAME=${REDIS_USERNAME}
       - LOG_LEVEL=INFO
       - JSON_LOGS=True
-    depends_on:
-      - mongodb
-      - redis
     volumes:
       - .profiles:/app/.profiles
-    restart: always
-
-  mongodb:
-    image: mongo:6.0
-    ports:
-      - "27017:27017"
-    volumes:
-      - mongodb_data:/data/db
-    restart: always
-
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
     restart: always
 
 volumes:
