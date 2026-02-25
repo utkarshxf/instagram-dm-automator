@@ -4,7 +4,7 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
-from .api.endpoints import auth, accounts, campaigns, templates, settings as api_settings
+from .api.endpoints import auth, accounts, campaigns, templates, dashboard, settings as api_settings
 from .db.mongodb import MongoDB
 from .core.config import settings
 from .core.logging import setup_logging
@@ -24,6 +24,7 @@ tags_metadata = [
     {"name": "campaigns", "description": "Create and manage campaigns, add targets, start jobs."},
     {"name": "templates", "description": "Manage reusable message templates."},
     {"name": "settings", "description": "Global settings for campaigns and automation."},
+    {"name": "dashboard", "description": "Metrics and activity data for the overview page."},
 ]
 
 app = FastAPI(
@@ -69,6 +70,7 @@ app.include_router(accounts.router, prefix="/accounts", tags=["accounts"])
 app.include_router(campaigns.router, prefix="/campaigns", tags=["campaigns"])
 app.include_router(templates.router, prefix="/templates", tags=["templates"])
 app.include_router(api_settings.router, prefix="/settings", tags=["settings"])
+app.include_router(dashboard.router, prefix="/dashboard", tags=["dashboard"])
 
 @app.get("/")
 async def root():
