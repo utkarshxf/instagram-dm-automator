@@ -13,6 +13,7 @@ services:
       - LOG_LEVEL=INFO
       - JSON_LOGS=True
     restart: always
+    shm_size: '1gb'
 
   worker:
     build: .
@@ -27,8 +28,9 @@ services:
       - LOG_LEVEL=INFO
       - JSON_LOGS=True
     volumes:
-      - .profiles:/app/.profiles
+      - ./profiles:/app/.profiles
     restart: always
+    shm_size: '1gb'
 
 volumes:
   mongodb_data:
