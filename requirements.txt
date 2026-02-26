@@ -6,3 +6,4 @@ click>=8.1.7
 aiohttp>=3.9.0
 aiosqlite>=0.19.0
 pyotp>=2.9.0
+uvicorn>=0.24.0
