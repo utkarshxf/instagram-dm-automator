@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     # Logging
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
     JSON_LOGS: bool = os.getenv("JSON_LOGS", "False").lower() == "true"
+
+    # Firebase
+    FIREBASE_SERVICE_ACCOUNT_BASE64: Optional[str] = os.getenv("FIREBASE_SERVICE_ACCOUNT_BASE64")
+    FIREBASE_STORAGE_BUCKET: str = os.getenv("FIREBASE_STORAGE_BUCKET", "flashcall-1d5e2.appspot.com")
     
     # CORS
     BACKEND_CORS_ORIGINS: list[str] = ["*"] # Adjust in production

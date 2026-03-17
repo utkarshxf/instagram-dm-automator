@@ -21,6 +21,14 @@ async def create_campaign(campaign_in: CampaignCreate, user = Depends(get_curren
     
     result = await db.campaigns.insert_one(campaign_dict)
     campaign_dict["_id"] = str(result.inserted_id)
+
+    # If lead campaigns were provided, attach them
+    if campaign_in.lead_campaign_ids:
+        from ...db.mongodb_adapter import MongoDBDatabase
+        adapter = MongoDBDatabase(db, user["id"])
+        for lead_camp_id in campaign_in.lead_campaign_ids:
+            await adapter.attach_lead_campaign_to_dm(campaign_dict["_id"], lead_camp_id)
+
     return campaign_dict
 
 @router.get("/", response_model=List[dict])
@@ -91,3 +99,19 @@ async def list_targets(campaign_id: str, user = Depends(get_current_user), db = 
     for t in targets:
         t["_id"] = str(t["_id"])
     return targets
+
+@router.post("/{campaign_id}/lead-campaigns/{lead_campaign_id}")
+async def attach_lead_campaign(campaign_id: str, lead_campaign_id: str, user = Depends(get_current_user), db = Depends(get_db)):
+    from ...db.mongodb_adapter import MongoDBDatabase
+    adapter = MongoDBDatabase(db, user["id"])
+    success = await adapter.attach_lead_campaign_to_dm(campaign_id, lead_campaign_id)
+    if not success:
+        raise HTTPException(status_code=400, detail="Could not attach lead campaign. It might not exist or is already attached to another campaign.")
+    return {"status": "attached"}
+
+@router.delete("/{campaign_id}/lead-campaigns/{lead_campaign_id}")
+async def detach_lead_campaign(campaign_id: str, lead_campaign_id: str, user = Depends(get_current_user), db = Depends(get_db)):
+    from ...db.mongodb_adapter import MongoDBDatabase
+    adapter = MongoDBDatabase(db, user["id"])
+    await adapter.detach_lead_campaign_from_dm(campaign_id, lead_campaign_id)
+    return {"status": "detached"}

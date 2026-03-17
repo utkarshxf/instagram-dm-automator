@@ -34,11 +34,50 @@ class CampaignService(BaseService):
         )
 
     async def get_pending_targets(self, campaign_id: str, limit: int = 100) -> List[dict]:
-        return await self.db.targets.find({
+        targets = await self.db.targets.find({
             "user_id": self.user_id,
             "campaign_id": campaign_id,
             "status": "pending"
         }).limit(limit).to_list(None)
+
+        if len(targets) >= limit:
+            return targets
+
+        # Check attached lead campaigns
+        campaign = await self.get_campaign(campaign_id)
+        if campaign and campaign.get("lead_campaign_ids"):
+            lead_limit = limit - len(targets)
+            lead_campaign_ids = campaign["lead_campaign_ids"]
+            leads = await self.db.leads.find({
+                "user_id": self.user_id,
+                "campaign_id": {"$in": lead_campaign_ids}
+            }).limit(lead_limit * 2).to_list(None)
+
+            for lead in leads:
+                if len(targets) >= limit:
+                    break
+                exists = await self.db.targets.find_one({
+                    "user_id": self.user_id,
+                    "campaign_id": campaign_id,
+                    "username": lead["username"]
+                })
+                if not exists:
+                    target_doc = {
+                        "user_id": self.user_id,
+                        "campaign_id": campaign_id,
+                        "username": lead["username"],
+                        "full_name": lead.get("full_name", ""),
+                        "bio": lead.get("bio", ""),
+                        "status": "pending",
+                        "created_at": datetime.now(timezone.utc)
+                    }
+                    try:
+                        await self.db.targets.insert_one(target_doc)
+                        target_doc["_id"] = str(target_doc["_id"])
+                        targets.append(target_doc)
+                    except Exception:
+                        pass
+        return targets
 
     async def update_target_status(self, target_username: str, campaign_id: str, status: str):
         await self.db.targets.update_one(

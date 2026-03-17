@@ -3,6 +3,9 @@
 import asyncio
 import random
 import logging
+import os
+import aiohttp
+import tempfile
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -37,7 +40,8 @@ class DMDispatcher:
 
     async def send_dm(self, account_username: str, target: dict,
                       campaign_id: int, niche: str = "",
-                      template_override: str = "") -> bool:
+                      template_override: str = "",
+                      image_url: Optional[str] = None) -> bool:
         """Send a single DM to a target user.
 
         Returns True on success, False on failure/skip.
@@ -111,6 +115,33 @@ class DMDispatcher:
                                            message, status="blocked", error=block_check["message"])
                 return False
 
+            # Handle Image sending first if present
+            if image_url:
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(image_url) as resp:
+                            if resp.status == 200:
+                                image_data = await resp.read()
+                                with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp_file:
+                                    tmp_file.write(image_data)
+                                    tmp_path = tmp_file.name
+                                
+                                try:
+                                    file_input = page.locator('input[type="file"]')
+                                    if await file_input.count() > 0:
+                                        await file_input.first.set_input_files(tmp_path)
+                                        await page.wait_for_timeout(random.randint(3000, 6000))
+                                        logger.info("Image uploaded for %s", target_username)
+                                    else:
+                                        logger.warning("File input not found for image upload")
+                                finally:
+                                    if os.path.exists(tmp_path):
+                                        os.remove(tmp_path)
+                            else:
+                                logger.warning("Failed to download image from %s (status: %d)", image_url, resp.status)
+                except Exception as e:
+                    logger.error("Error sending image: %s", e)
+
             # Type message in the text area
             textarea = page.locator('textarea[placeholder*="Message"], div[role="textbox"][contenteditable="true"]')
             if await textarea.count() == 0:
@@ -158,7 +189,8 @@ class DMDispatcher:
 
     async def send_batch(self, account_username: str, targets: list[dict],
                          campaign_id: int, niche: str = "",
-                         template_override: str = "") -> dict:
+                         template_override: str = "",
+                         image_url: Optional[str] = None) -> dict:
         """Send DMs to a batch of targets with delays between each.
 
         Returns stats dict: {"sent": n, "failed": n, "skipped": n}
@@ -193,7 +225,8 @@ class DMDispatcher:
                     await asyncio.sleep(wait_secs)
 
             success = await self.send_dm(account_username, target, campaign_id,
-                                          niche=niche, template_override=template_override)
+                                          niche=niche, template_override=template_override,
+                                          image_url=image_url)
             if success:
                 stats["sent"] += 1
                 allowance -= 1

@@ -40,6 +40,7 @@ class CampaignBase(BaseModel):
     template: str
     niche: Optional[str] = ""
     accounts: List[str] = []
+    lead_campaign_ids: List[str] = []
 
 class CampaignCreate(CampaignBase):
     pass
@@ -69,6 +70,7 @@ class Target(TargetBase):
 class TemplateBase(BaseModel):
     name: str
     content: str
+    image_url: Optional[str] = None
 
 class TemplateCreate(TemplateBase):
     pass
@@ -113,6 +115,47 @@ class ScheduleSettings(BaseModel):
     active_hours_start: int = 8
     active_hours_end: int = 23
     days_off: List[str] = ["Sunday"]
+
+class LeadCampaignBase(BaseModel):
+    name: str
+    seed_profile: str  # Seed username or post URL
+    filters: dict = {
+        "min_followers": 0,
+        "max_followers": 1000000,
+        "bio_keywords": [],
+        "required_bio_links": [],
+        "content_topics": [],
+        "interaction_filters": {}
+    }
+    accounts: List[str] = []
+    dm_campaign_id: Optional[str] = None
+
+class LeadCampaignCreate(LeadCampaignBase):
+    pass
+
+class LeadCampaign(LeadCampaignBase):
+    id: str = Field(alias="_id")
+    user_id: str
+    status: str = "created"  # created, running, paused, stopped, completed
+    total_leads: int = 0
+    processed_count: int = 0
+    created_at: datetime
+    updated_at: datetime
+
+class LeadBase(BaseModel):
+    username: str
+    profile_url: str
+    follower_count: int = 0
+    bio: Optional[str] = ""
+    full_name: Optional[str] = ""
+    is_private: bool = False
+    external_url: Optional[str] = None
+
+class Lead(LeadBase):
+    id: str = Field(alias="_id")
+    user_id: str
+    campaign_id: str
+    created_at: datetime
 
 class GlobalSettings(BaseModel):
     warmup: WarmupSettings = WarmupSettings()

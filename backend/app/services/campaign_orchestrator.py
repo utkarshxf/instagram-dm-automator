@@ -194,7 +194,21 @@ class CampaignOrchestrator:
         logger.info("Starting sending phase for campaign %s", campaign_id)
 
         niche = campaign.get("niche", "")
-        template = campaign.get("template", "")
+        template_id = campaign.get("template", "")
+        
+        # Resolve template content and image
+        template_content = ""
+        image_url = None
+        if template_id:
+            from bson import ObjectId
+            try:
+                tmpl_doc = await self.db.db.templates.find_one({"_id": ObjectId(template_id)})
+                if tmpl_doc:
+                    template_content = tmpl_doc.get("content", "")
+                    image_url = tmpl_doc.get("image_url")
+            except Exception as e:
+                logger.error("Error loading template %s: %s", template_id, e)
+
         day_counter = 0
 
         while True:
@@ -249,7 +263,8 @@ class CampaignOrchestrator:
                     tasks.append(
                         self.dm_dispatcher.send_batch(
                             username, acct_targets, campaign_id,
-                            niche=niche, template_override=template
+                            niche=niche, template_override=template_content,
+                            image_url=image_url
                         )
                     )
 
